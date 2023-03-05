@@ -9,6 +9,9 @@ use near_sdk::{
 
 use crate::error::*;
 
+pub const MIN_DECIMAL: u8 = 1;
+pub const MAX_DECIMAL: u8 = 24;
+
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Token {
     address: AccountId,
@@ -30,6 +33,11 @@ impl Token {
     }
 
     pub fn set_metadata(&mut self, metadata: FungibleTokenMetadata) {
+        assert!(
+            metadata.decimals >= MIN_DECIMAL && metadata.decimals <= MAX_DECIMAL,
+            "{}",
+            INVALID_TOKEN_DECIMAL
+        );
         log!("Set token {} name: {}, ticker: {}, decimal: {}", self.address, metadata.name, metadata.symbol, metadata.decimals);
 
         self.name = Some(metadata.name);
@@ -54,8 +62,25 @@ impl Token {
     }
 
     pub fn get_balance(&self) -> Balance {
-        assert!(self.balance > 0, "{}", TOKEN_ZERO_BALANCE);
         self.balance
+    }
+
+    pub fn set_balance(&mut self, amount: Balance) {
+        self.balance = self.balance.checked_add(amount).expect(INTERNAL_OVERFLOW_ERROR);
+    }
+
+    pub fn check_address(&self, address: &AccountId) -> bool {
+        self.address.as_str() == address.as_str()
+    }
+
+    pub fn get_canonical_balance(&self) -> Balance {
+        assert!(self.decimal.is_some(), "{}", TOKEN_METADATA_NOT_INITIALISED);
+
+        let factor = 10u128
+            .checked_pow((MAX_DECIMAL - self.decimal.unwrap()) as u32)
+            .expect(INTERNAL_OVERFLOW_ERROR);
+
+        self.balance.checked_mul(factor).expect(INTERNAL_OVERFLOW_ERROR)
     }
 }
 
