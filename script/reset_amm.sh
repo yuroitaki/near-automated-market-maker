@@ -4,7 +4,7 @@ set -o allexport
 source "./script/var.conf"
 set +o allexport
 
-# !!! DANGER — This method will delete the AMM account. Beneficiary account must already be initialized in order to transfer all Near tokens or these will be lost.
+# !!! DANGER — This method will delete the AMM account. Beneficiary account must already be initialized in order to transfer all NEAR tokens or these will be lost.
 # !!! Make sure to send all fungible tokens or NFTs that AMM owns to the beneficiary account prior to deleting, as this method will only transfer NEAR tokens.
 eval "${BASE_COMMAND} delete ${AMM_ACC_ADDR} ${MASTER_ACC_ADDR}"
 

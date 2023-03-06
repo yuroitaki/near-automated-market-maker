@@ -17,6 +17,7 @@ pub struct TokenMetadata {
     name: String,
     ticker: String,
     decimal: u8,
+    // ratio as compared to the first token in the token vector, so first token's ratio is always 1
     pub ratio: f64,
 }
 
@@ -114,4 +115,94 @@ impl Token {
             self.decimal.expect(TOKEN_METADATA_NOT_INITIALISED)
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_set_methods() {
+        let address = AccountId::new_unchecked(String::from("test.near"));
+        let mut token = Token::new(address.clone());
+        let spec = "test-spec".to_string();
+        let name = "test-name".to_string();
+        let symbol = "TST".to_string();
+        let decimals = 3u8;
+        token.set_metadata(FungibleTokenMetadata {
+            spec: spec.clone(),
+            name: name.clone(),
+            symbol: symbol.clone(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals,
+        });
+        assert_eq!(token.get_metadata().address.as_str(), address.as_str());
+        assert_eq!(token.get_metadata().name, name);
+        assert_eq!(token.get_metadata().ticker, symbol);
+        assert_eq!(token.get_metadata().decimal, decimals);
+        assert_eq!(token.get_address().as_str(), address.as_str());
+        assert!(token.check_address(&address));
+        assert_eq!(token.get_decimal(), decimals);
+
+        assert_eq!(token.get_balance(), 0);
+        token.add_balance(10);
+        assert_eq!(token.get_balance(), 10);
+        token.subtract_balance(5);
+        assert_eq!(token.get_balance(), 5);
+
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_illegal_get_metadata() {
+        let address = AccountId::new_unchecked(String::from("test.near"));
+        let token = Token::new(address.clone());
+        token.get_metadata();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_illegal_set_metadata_min() {
+        let address = AccountId::new_unchecked(String::from("test.near"));
+        let mut token = Token::new(address.clone());
+        token.set_metadata(FungibleTokenMetadata {
+            spec: "test-spec".to_string(),
+            name: "test-name".to_string(),
+            symbol: "test-sym".to_string(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals: 0,
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_illegal_set_metadata_max() {
+        let address = AccountId::new_unchecked(String::from("test.near"));
+        let mut token = Token::new(address.clone());
+        token.set_metadata(FungibleTokenMetadata {
+            spec: "test-spec".to_string(),
+            name: "test-name".to_string(),
+            symbol: "test-sym".to_string(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals: 30,
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_illegal_subtract_balance() {
+        let address = AccountId::new_unchecked(String::from("test.near"));
+        let mut token = Token::new(address.clone());
+
+        assert_eq!(token.get_balance(), 0);
+        token.add_balance(10);
+        assert_eq!(token.get_balance(), 10);
+        token.subtract_balance(10);
+    }   
 }

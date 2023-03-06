@@ -38,7 +38,9 @@ pub(crate) enum StorageKey {
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Contract {
     owner_address: AccountId,
+    // only supports two tokens
     tokens: Vector<Token>,
+    // whether the contract is ready to support swap
     functional: bool,
 }
 
@@ -46,6 +48,7 @@ pub struct Contract {
 impl Contract {
     #[init]
     pub fn new(owner_id: AccountId, token_a_id: AccountId, token_b_id: AccountId) -> Self {
+        // the contract itself holds the wallets of the tokens, so the owner must be a different account
         assert_ne!(
             owner_id,
             env::current_account_id(),
@@ -68,7 +71,9 @@ impl Contract {
         }
     }
 
+    // public method to get the contract's metadata
     pub fn get_metadata(&self) -> ContractMetadata {
+        // metadata contains ratio which is only available after liquidity is provided
         assert!(self.functional, "{}", AMM_NOT_FUNCTIONAL_YET);
         let token_a_balance = self
             .tokens
@@ -95,6 +100,7 @@ impl Contract {
         }
     }
 
+    // provide liquidity, only contract's owner can provide
     fn deposit(&mut self, token_in: AccountId, amount: Balance) {
         self.tokens
             .iter_mut()
@@ -102,6 +108,7 @@ impl Contract {
             .expect(INVALID_TOKEN_TRANSFERRED)
             .add_balance(amount);
 
+        // when liquidity of both tokens are provided, the contract is functional
         if !self.functional && self.tokens.iter().all(|token| token.get_balance() > 0) {
             log!("Turning on the AMM engine!");
             self.functional = true;
@@ -110,6 +117,7 @@ impl Contract {
         log!("Liquidity {} of token {} added!", amount, token_in);
     }
 
+    // main swap operation
     fn swap(&mut self, token_in_address: &AccountId, amount_in: Balance) -> (AccountId, Balance) {
         let token_in = self.tokens
             .iter()
@@ -143,6 +151,8 @@ impl Contract {
         let canonical_amount_in = U256::from(
             amount_to_canonical_amount(amount_in, token_in.get_decimal())
         );
+
+        // x * y = k constant product market making formula
         let canonical_amount_out = (canonical_amount_in * canonical_balance_out / (canonical_balance_in + canonical_amount_in)).as_u128();
 
         let amount_out = canonical_amount_to_amount(
@@ -176,6 +186,8 @@ impl Contract {
         (token_out_address, amount_out)
     }
 
+    // cross-contract call to send swapped token to user, if this operation fails the token will be refunded to the contract's account
+    // but the refunded token should not be included into the liquidity, so no state rollback needed
     fn send_token_out(&self, sender_id: AccountId, token_id: AccountId, amount: Balance) -> Promise {
         ext_fungible_token::ext(token_id)
             .with_attached_deposit(FT_TRANSFER_DEPOSIT_YOCTO_NEAR)
@@ -186,12 +198,14 @@ impl Contract {
             )
     }
 
+    // cross-contract call to get token metadata
     fn get_token_metadata(token_id: &AccountId) -> Promise {
         ext_fungible_token::ext(token_id.clone())
             .ft_metadata()
             .then(Self::ext(env::current_account_id()).post_fungible_token_metadata(token_id))
     }
 
+    // callback for the token metadata cross-contract call above
     #[private]
     pub fn post_fungible_token_metadata(&mut self, token_id: &AccountId) {
         assert_eq!(
@@ -222,6 +236,7 @@ impl Contract {
     }
 }
 
+// interface for cross-contract call
 #[ext_contract(ext_fungible_token)]
 trait FungibleToken {
     fn ft_metadata(&self) -> FungibleTokenMetadata;
@@ -234,6 +249,7 @@ trait FungibleToken {
     );
 }
 
+// message attached in payload that gets sent when this contract receives a token 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 enum FungibleTokenReceiverMessage {
@@ -252,6 +268,7 @@ impl fmt::Display for FungibleTokenReceiverMessage {
 
 #[near_bindgen]
 impl FungibleTokenReceiver for Contract {
+    // this function gets called when this contract receives a token 
     fn ft_on_transfer(
         &mut self,
         sender_id: AccountId,
@@ -296,5 +313,105 @@ impl FungibleTokenReceiver for Contract {
         } else {
             env::panic_str(INVALID_TOKEN_RECEIVER_MESSAGE);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use near_sdk::test_utils::{accounts, VMContextBuilder};
+    use near_sdk::testing_env;
+
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let contract = accounts(0);
+        let owner = accounts(1);
+        let token_a_address = accounts(2);
+        let token_b_address = accounts(3);
+
+        let mut context = VMContextBuilder::new();
+        context
+            .current_account_id(contract.clone())
+            .signer_account_id(owner.clone())
+            .predecessor_account_id(owner.clone());
+        testing_env!(context.build());
+
+        let contract = Contract::new(
+            owner.clone(),
+            token_a_address.clone(),
+            token_b_address.clone(),
+        );
+
+        assert_eq!(contract.owner_address, owner);
+        assert_eq!(contract.tokens[0].get_address().as_str(), token_a_address.as_str());
+        assert_eq!(contract.tokens[1].get_address().as_str(), token_b_address.as_str());
+        assert!(!contract.functional);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_illegal_token() {
+        let contract = accounts(0);
+        let owner = accounts(1);
+        let token_a_address = accounts(2);
+
+        let mut context = VMContextBuilder::new();
+        context
+            .current_account_id(contract.clone())
+            .signer_account_id(owner.clone())
+            .predecessor_account_id(owner.clone());
+        testing_env!(context.build());
+
+        Contract::new(
+            contract.clone(),
+            token_a_address.clone(),
+            token_a_address.clone(),
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_illegal_owner() {
+        let contract = accounts(0);
+        let token_a_address = accounts(2);
+        let token_b_address = accounts(3);
+
+        let mut context = VMContextBuilder::new();
+        context
+            .current_account_id(contract.clone())
+            .signer_account_id(contract.clone())
+            .predecessor_account_id(contract.clone());
+        testing_env!(context.build());
+
+        Contract::new(
+            contract.clone(),
+            token_a_address.clone(),
+            token_b_address.clone(),
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_illegal_get_metadata() {
+        let contract = accounts(0);
+        let owner = accounts(1);
+        let token_a_address = accounts(2);
+        let token_b_address = accounts(3);
+
+        let mut context = VMContextBuilder::new();
+        context
+            .current_account_id(contract.clone())
+            .signer_account_id(owner.clone())
+            .predecessor_account_id(owner.clone());
+        testing_env!(context.build());
+
+        let contract = Contract::new(
+            owner.clone(),
+            token_a_address.clone(),
+            token_b_address.clone(),
+        );
+
+        contract.get_metadata();
     }
 }
