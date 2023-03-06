@@ -100,14 +100,14 @@ cargo test
 
 The command above will also recreate the smart contract account, whitelist it for all the fungible tokens and redeploy the smart contract.
 
-3. [Integration test](https://docs.near.org/sdk/rust/testing/integration-tests) using different NEAR's SDK to simulate contract interation can also be written, and that remains as a future to-do.
+3. [Integration test](https://docs.near.org/sdk/rust/testing/integration-tests) using different NEAR's SDK to simulate contract interation can also be written — it was not implemented due to time contraints.
 
 ## Potential future implementations
 
-- fees
-- liquidity provider tokens
-- ability to withdraw liquidity
-- more than 2 tokens
-- more than 1 liquidity provider
-- more than 1 pool
-- different AMM formula
+- Fees
+- Liquidity provider tokens
+- Ability to withdraw liquidity
+- More than 2 tokens
+- More than 1 liquidity provider
+- More than 1 pool
+- Different AMM formula
