@@ -1,16 +1,24 @@
 use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_sdk::{
-    AccountId, Balance, ext_contract,
     borsh::{self, BorshDeserialize, BorshSerialize},
-    // json_types::U128,
     log,
     serde::{Deserialize, Serialize},
+    AccountId,
+    Balance,
 };
 
 use crate::error::*;
+use crate::util::*;
 
-pub const MIN_DECIMAL: u8 = 1;
-pub const MAX_DECIMAL: u8 = 24;
+#[derive(Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct TokenMetadata {
+    address: AccountId,
+    name: String,
+    ticker: String,
+    decimal: u8,
+    pub ratio: f64,
+}
 
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Token {
@@ -38,7 +46,13 @@ impl Token {
             "{}",
             INVALID_TOKEN_DECIMAL
         );
-        log!("Set token {} name: {}, ticker: {}, decimal: {}", self.address, metadata.name, metadata.symbol, metadata.decimals);
+        log!(
+            "Set token {} name: {}, ticker: {}, decimal: {}",
+            self.address,
+            metadata.name,
+            metadata.symbol,
+            metadata.decimals
+        );
 
         self.name = Some(metadata.name);
         self.ticker = Some(metadata.symbol);
@@ -46,14 +60,20 @@ impl Token {
     }
 
     pub fn get_metadata(&self) -> TokenMetadata {
-        assert!(self.name.is_some(), "{}", TOKEN_METADATA_NOT_INITIALISED);
-        assert!(self.ticker.is_some(), "{}", TOKEN_METADATA_NOT_INITIALISED);
-        assert!(self.decimal.is_some(), "{}", TOKEN_METADATA_NOT_INITIALISED);
-
         TokenMetadata {
-            name: self.name.as_ref().unwrap().clone(),
-            ticker: self.ticker.as_ref().unwrap().clone(),
-            decimal: self.decimal.unwrap(),
+            address: self.address.clone(),
+            name: self
+                .name
+                .as_ref()
+                .expect(TOKEN_METADATA_NOT_INITIALISED)
+                .clone(),
+            ticker: self
+                .ticker
+                .as_ref()
+                .expect(TOKEN_METADATA_NOT_INITIALISED)
+                .clone(),
+            decimal: self.decimal.expect(TOKEN_METADATA_NOT_INITIALISED),
+            ratio: 1f64,
         }
     }
 
@@ -61,42 +81,37 @@ impl Token {
         &self.address
     }
 
-    pub fn get_balance(&self) -> Balance {
-        self.balance
-    }
-
-    pub fn set_balance(&mut self, amount: Balance) {
-        self.balance = self.balance.checked_add(amount).expect(INTERNAL_OVERFLOW_ERROR);
-    }
-
     pub fn check_address(&self, address: &AccountId) -> bool {
         self.address.as_str() == address.as_str()
     }
 
-    pub fn get_canonical_balance(&self) -> Balance {
-        assert!(self.decimal.is_some(), "{}", TOKEN_METADATA_NOT_INITIALISED);
-
-        let factor = 10u128
-            .checked_pow((MAX_DECIMAL - self.decimal.unwrap()) as u32)
-            .expect(INTERNAL_OVERFLOW_ERROR);
-
-        self.balance.checked_mul(factor).expect(INTERNAL_OVERFLOW_ERROR)
+    pub fn get_decimal(&self) -> u8 {
+        self.decimal.expect(TOKEN_METADATA_NOT_INITIALISED)
     }
-}
 
-#[derive(Serialize, Deserialize)]
-#[serde(crate = "near_sdk::serde")]
-pub struct TokenMetadata {
-    name: String,
-    ticker: String,
-    decimal: u8
-}
+    pub fn get_balance(&self) -> Balance {
+        self.balance
+    }
 
-#[ext_contract(ext_fungible_token)]
-trait FungibleToken {
-    fn ft_metadata(&self) -> FungibleTokenMetadata;
+    pub fn add_balance(&mut self, amount: Balance) {
+        self.balance = self
+            .balance
+            .checked_add(amount)
+            .expect(INTERNAL_OVERFLOW_ERROR);
+    }
 
-    // fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>);
+    pub fn subtract_balance(&mut self, amount: Balance) {
+        self.balance = self
+            .balance
+            .checked_sub(amount)
+            .expect(INTERNAL_OVERFLOW_ERROR);
+        assert!(self.balance > 0, "{}", INVALID_TOKEN_BALANCE);
+    }
 
-    // fn ft_balance_of(&self, account_id: AccountId) -> U128;
+    pub fn get_canonical_balance(&self) -> Balance {
+        amount_to_canonical_amount(
+            self.balance,
+            self.decimal.expect(TOKEN_METADATA_NOT_INITIALISED)
+        )
+    }
 }
